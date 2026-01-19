@@ -1,0 +1,5 @@
+persist_dir: data/index
+raw_docs_dir: data/raw_docs
+top_k: 8
+threshold: 0.95
+num_questions: 8

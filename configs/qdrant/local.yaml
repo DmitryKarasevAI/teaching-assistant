@@ -1,0 +1,5 @@
+url: http://localhost:6333
+api_key: null
+path: data/qdrant
+collection: teaching-assistant
+prefer_grpc: false

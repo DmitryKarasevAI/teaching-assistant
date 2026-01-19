@@ -1,0 +1,5 @@
+url: http://qdrant:6333
+api_key: null
+path: null
+collection: teaching-assistant
+prefer_grpc: false

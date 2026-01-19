@@ -1,0 +1,6 @@
+defaults:
+  - app: app
+  - embedding: embedding
+  - llm: llm
+  - qdrant: docker
+  - _self_
