@@ -1,23 +1,43 @@
 from __future__ import annotations
 
 import re
-from typing import List
+from dataclasses import dataclass
+from typing import List, Sequence
 
-from llama_index.core import Settings
-
+from llama_index.core.base.llms.base import BaseLLM
 
 QUESTION_ITEM_PATTERN = re.compile(r"^\s*(?:[-*]|\d+[.)])\s*(.+?)\s*$")
+LEADING_ENUM_PATTERN = re.compile(r"^\s*\d+[.)]\s*")
+BULLET_PATTERN = re.compile(r"^\s*[-*]\s*")
+
+CITATION_PAREN_RE = re.compile(
+    r"\((?:snippets?|sources?)\s*:\s*([0-9,\s]+)\)\s*$", re.IGNORECASE
+)
+CITATION_BRACK_RE = re.compile(
+    r"\[(?:snippets?|sources?)\s*:\s*([0-9,\s]+)\]\s*$", re.IGNORECASE
+)
 
 
-def build_prompt(snippets: List[str], num_questions: int) -> str:
+@dataclass
+class QuestionWithCitations:
+    text: str
+    snippet_ids: List[int]
+
+
+def build_prompt(snippets: Sequence[str], num_questions: int) -> str:
     context = "\n\n".join(f"[Snippet {i + 1}]\n{s}" for i, s in enumerate(snippets))
+    n_snips = len(snippets)
     return f"""You are generating questions for an exam.
 
 Rules:
 - Generate exactly {num_questions} questions.
 - Each question must be answerable using ONLY the provided snippets.
 - Questions should be specific (not generic), and not duplicates.
-- Output as a numbered list (1..{num_questions}) with one question per line.
+- Output MUST be a numbered list (1..{num_questions}), one question per line.
+- Every line MUST end with a citation in this exact format: (Snippets: i, j)
+  - i, j are snippet numbers between 1 and {n_snips}
+  - Use 1 to 3 snippet numbers per question.
+- Do NOT add any extra commentary.
 
 SNIPPETS:
 {context}
@@ -26,30 +46,142 @@ QUESTIONS:
 """
 
 
-def parse_numbered_questions(model_output: str, num_questions: int) -> List[str]:
-    extracted_questions: List[str] = []
+def _normalize_question(text: str) -> str:
+    text = text.strip()
+    text = LEADING_ENUM_PATTERN.sub("", text)
+    text = BULLET_PATTERN.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
-    for line in model_output.splitlines():
+
+def _extract_citations(line: str, snippet_count: int) -> tuple[str, List[int]]:
+    """
+    Returns (question_text_without_citations, snippet_ids_1_based)
+    Accepts citations in (...) or [...] at the end.
+    """
+    line = line.strip()
+
+    match = CITATION_PAREN_RE.search(line) or CITATION_BRACK_RE.search(line)
+    snippet_ids: List[int] = []
+
+    if match:
+        nums = match.group(1)
+        # remove trailing citation block
+        line = line[: match.start()].rstrip()
+        # parse numbers
+        for part in re.split(r"[,\s]+", nums.strip()):
+            if not part:
+                continue
+            if part.isdigit():
+                val = int(part)
+                if 1 <= val <= snippet_count:
+                    snippet_ids.append(val)
+
+    return _normalize_question(line), snippet_ids
+
+
+def parse_questions_with_citations(
+    model_output: str, snippet_count: int
+) -> List[QuestionWithCitations]:
+    """
+    Robust extraction:
+      - captures numbered or bullet lines
+      - supports wrapped lines (continuations) until the next item starts
+    """
+    lines = [line.rstrip() for line in (model_output or "").splitlines()]
+    items: List[QuestionWithCitations] = []
+    current: List[str] = []
+
+    def flush_current():
+        nonlocal current, items
+        if not current:
+            return
+        joined = " ".join(x.strip() for x in current if x.strip())
+        q_text, cites = _extract_citations(joined, snippet_count)
+        if q_text:
+            items.append(QuestionWithCitations(text=q_text, snippet_ids=cites))
+        current = []
+
+    for line in lines:
         match = QUESTION_ITEM_PATTERN.match(line)
-        if not match:
-            continue
+        if match:
+            flush_current()
+            current = [match.group(1)]
+        else:
+            if current and line.strip():
+                current.append(line.strip())
 
-        question_text = match.group(1).strip()
-        if question_text:
-            extracted_questions.append(question_text)
+    flush_current()
+    return items
 
-        if len(extracted_questions) >= num_questions:
-            break
 
-    return extracted_questions
+def _repair_prompt(
+    snippets: Sequence[str],
+    num_questions: int,
+    existing: Sequence[QuestionWithCitations],
+) -> str:
+    context = "\n\n".join(
+        f"[Snippet {i + 1}]\n{snippet}" for i, snippet in enumerate(snippets)
+    )
+    n_snips = len(snippets)
+
+    # List existing questions (even if citations missing) so the model can keep them and fix format
+    existing_lines = (
+        "\n".join(
+            f"{i + 1}) {q.text} (Snippets: {', '.join(map(str, q.snippet_ids)) if q.snippet_ids else '1'})"
+            for i, q in enumerate(existing[:num_questions])
+        )
+        or "(none)"
+    )
+
+    return f"""You are fixing exam questions to match the required output format.
+
+You MUST output exactly {num_questions} lines, numbered 1..{num_questions}.
+Every line MUST end with citations in this exact format: (Snippets: i, j)
+- i, j must be between 1 and {n_snips}
+- Use 1 to 3 snippet numbers per question.
+- Questions must be answerable using ONLY the provided snippets.
+- Do NOT add extra commentary.
+
+Here are the current questions (some may be missing citations or formatting):
+{existing_lines}
+
+SNIPPETS:
+{context}
+
+RETURN THE FINAL LIST NOW:
+"""
 
 
 def generate_questions_from_snippets(
-    snippets: List[str], num_questions: int
-) -> List[str]:
+    snippets: Sequence[str],
+    num_questions: int,
+    llm: BaseLLM,
+) -> List[QuestionWithCitations]:
+    """
+    Generates `num_questions` questions with snippet citations.
+    If the model fails (missing citations or wrong count), does one repair pass.
+    """
+    if num_questions <= 0:
+        return []
+
     prompt = build_prompt(snippets, num_questions)
+    resp = llm.complete(prompt)
+    raw = getattr(resp, "text", None) or str(resp)
 
-    resp = Settings.llm.complete(prompt)
-    raw = str(resp)
+    questions = parse_questions_with_citations(raw, snippet_count=len(snippets))
 
-    return parse_numbered_questions(raw, num_questions)
+    # Conditions that trigger repair:
+    # - wrong count
+    # - any question missing citations
+    bad = (len(questions) < num_questions) or any(
+        len(question.snippet_ids) == 0 for question in questions[:num_questions]
+    )
+
+    if bad:
+        repair = _repair_prompt(snippets, num_questions, questions)
+        new_resp = llm.complete(repair)
+        new_raw = getattr(new_resp, "text", None) or str(new_resp)
+        questions = parse_questions_with_citations(new_raw, snippet_count=len(snippets))
+
+    return questions[:num_questions]

@@ -1,0 +1,30 @@
+top_k: 20
+
+stage1:
+  dense_low:
+    enabled: true
+    limit: 200
+  bm25:
+    enabled: true
+    limit: 200
+
+  fusion:
+    enabled: true
+    method: rrf # rrf or dbsf
+    limit: 200 # how many candidates after fusion
+
+stage2:
+  dense_high_rerank:
+    enabled: true
+    limit: 50 # rerank to N using dense_high inside Qdrant
+
+post:
+  score_threshold:
+    enabled: false
+    value: 0.25
+
+reranker:
+  cross_encoder:
+    enabled: true
+    model: cross-encoder/ms-marco-MiniLM-L-2-v2
+    top_n: 20

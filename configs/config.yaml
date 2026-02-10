@@ -1,6 +1,8 @@
 defaults:
   - app: app
   - embedding: embedding
+  - indexing: indexing
   - llm: llm
   - qdrant: docker
+  - retrieval: retrieval
   - _self_

@@ -1,0 +1,8 @@
+store_dense_low: true
+store_dense_high: true
+store_bm25: true
+bm25_avg_len: 1024
+bm25_k: 1.5
+bm25_b: 0.75
+chunk_size: 1024
+chunk_overlap: 256

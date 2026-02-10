@@ -1,6 +1,7 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
+    restart: on-failure
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -26,6 +27,7 @@ services:
 
   api:
     build: .
+    restart: on-failure
     ports:
       - "8000:8000"
     volumes:
