@@ -22,7 +22,7 @@ class LLMConfig:
 
 @dataclass
 class QdrantConfig:
-    url: str = "http://localhost:6333"
+    url: str = "http://qdrant:6333"
     api_key: Optional[str] = None
     path: Optional[str] = None
     collection: str = "teaching-assistant"

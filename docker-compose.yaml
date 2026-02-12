@@ -7,7 +7,7 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
-    entrypoint: > # Downloading curl for healthcheck
+    entrypoint: >
       sh -lc "
         apt-get update &&
         apt-get install -y --no-install-recommends curl &&
@@ -25,26 +25,55 @@ services:
       retries: 60
       start_period: 5s
 
-  api:
-    build: .
+  rag:
+    build:
+      context: .
+      dockerfile: services/rag/Dockerfile
     restart: on-failure
     ports:
-      - "8000:8000"
+      - "8001:8000" # expose rag externally for ingestion/debug
     volumes:
       - hf_cache:/app/.cache/huggingface
       - app_data:/app/data
     depends_on:
       qdrant:
         condition: service_healthy
-    command:
-      [
-        "uvicorn",
-        "teaching_assistant.api:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8000",
-      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request;
+          urllib.request.urlopen(''http://localhost:8000/healthz'').read()"',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+
+  gen:
+    build:
+      context: .
+      dockerfile: services/gen/Dockerfile
+    restart: on-failure
+    ports:
+      - "8000:8000"
+    environment:
+      - RAG_URL=http://rag:8000
+    volumes:
+      - hf_cache:/app/.cache/huggingface
+      - app_data:/app/data
+    depends_on:
+      rag:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request;
+          urllib.request.urlopen(''http://localhost:8000/healthz'').read()"',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 30
 
 volumes:
   qdrant_storage:

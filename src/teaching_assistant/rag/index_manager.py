@@ -9,7 +9,6 @@ from llama_index.core.schema import Document, TextNode, NodeWithScore
 from llama_index.core.postprocessor import SentenceTransformerRerank
 
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.huggingface import HuggingFaceLLM
 
 from qdrant_client import QdrantClient, models as qmodels
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -43,10 +42,6 @@ class IndexManager:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-
-        self.llm = HuggingFaceLLM(
-            model_name=cfg.llm.model_name, tokenizer_name=cfg.llm.tokenizer
-        )
 
         self.low_embed = HuggingFaceEmbedding(model_name=cfg.embedding.low_model_name)
         self.high_embed = HuggingFaceEmbedding(model_name=cfg.embedding.high_model_name)
@@ -294,6 +289,7 @@ class IndexManager:
         threshold: Optional[float] = None,
         tenant_id: Optional[str] = None,
         course_id: Optional[str] = None,
+        top_k: Optional[int] = None,
     ) -> List[RetrievedSnippet]:
         must = []
         if tenant_id:
@@ -311,7 +307,11 @@ class IndexManager:
 
         query_filter = qmodels.Filter(must=must) if must else None
 
-        top_k = int(self.cfg.retrieval.top_k)
+        effective_top_k = (
+            int(top_k) if top_k is not None else int(self.cfg.retrieval.top_k)
+        )
+        stage2_limit = int(self.cfg.retrieval.stage2.dense_high_rerank.limit)
+        stage2_limit = max(stage2_limit, effective_top_k)
 
         stage1_prefetch, direct_query, direct_using = self._build_stage1_prefetch(query)
 
@@ -333,7 +333,7 @@ class IndexManager:
                     prefetch=[stage1_prefetch],
                     query=q_high,
                     using=self.DENSE_HIGH,
-                    limit=int(self.cfg.retrieval.stage2.dense_high_rerank.limit),
+                    limit=stage2_limit,
                     with_payload=True,
                     with_vectors=False,
                     score_threshold=score_threshold,
@@ -354,7 +354,7 @@ class IndexManager:
                     ],
                     query=q_high,
                     using=self.DENSE_HIGH,
-                    limit=int(self.cfg.retrieval.stage2.dense_high_rerank.limit),
+                    limit=stage2_limit,
                     with_payload=True,
                     with_vectors=False,
                     score_threshold=score_threshold,
@@ -366,7 +366,7 @@ class IndexManager:
                     collection_name=self.collection_name,
                     query=q_high,
                     using=self.DENSE_HIGH,
-                    limit=int(self.cfg.retrieval.stage2.dense_high_rerank.limit),
+                    limit=stage2_limit,
                     with_payload=True,
                     with_vectors=False,
                     score_threshold=score_threshold,
@@ -388,7 +388,7 @@ class IndexManager:
                     collection_name=self.collection_name,
                     prefetch=stage1_prefetch.prefetch,
                     query=qmodels.FusionQuery(fusion=fusion),
-                    limit=top_k,
+                    limit=effective_top_k,
                     with_payload=True,
                     with_vectors=False,
                     score_threshold=score_threshold,
@@ -400,7 +400,7 @@ class IndexManager:
                     collection_name=self.collection_name,
                     query=direct_query,
                     using=direct_using,
-                    limit=top_k,
+                    limit=effective_top_k,
                     with_payload=True,
                     with_vectors=False,
                     score_threshold=score_threshold,
@@ -413,7 +413,7 @@ class IndexManager:
                     collection_name=self.collection_name,
                     query=q_high,
                     using=self.DENSE_HIGH,
-                    limit=top_k,
+                    limit=effective_top_k,
                     with_payload=True,
                     with_vectors=False,
                     score_threshold=score_threshold,
@@ -434,7 +434,7 @@ class IndexManager:
         if self.cross_rerank and nodes:
             nodes = self.cross_rerank.postprocess_nodes(nodes, query_str=query)
 
-        nodes = nodes[:top_k]
+        nodes = nodes[:effective_top_k]
 
         return [
             RetrievedSnippet(

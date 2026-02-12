@@ -115,52 +115,14 @@ def parse_questions_with_citations(
     return items
 
 
-def _repair_prompt(
-    snippets: Sequence[str],
-    num_questions: int,
-    existing: Sequence[QuestionWithCitations],
-) -> str:
-    context = "\n\n".join(
-        f"[Snippet {i + 1}]\n{snippet}" for i, snippet in enumerate(snippets)
-    )
-    n_snips = len(snippets)
-
-    # List existing questions (even if citations missing) so the model can keep them and fix format
-    existing_lines = (
-        "\n".join(
-            f"{i + 1}) {q.text} (Snippets: {', '.join(map(str, q.snippet_ids)) if q.snippet_ids else '1'})"
-            for i, q in enumerate(existing[:num_questions])
-        )
-        or "(none)"
-    )
-
-    return f"""You are fixing exam questions to match the required output format.
-
-You MUST output exactly {num_questions} lines, numbered 1..{num_questions}.
-Every line MUST end with citations in this exact format: (Snippets: i, j)
-- i, j must be between 1 and {n_snips}
-- Use 1 to 3 snippet numbers per question.
-- Questions must be answerable using ONLY the provided snippets.
-- Do NOT add extra commentary.
-
-Here are the current questions (some may be missing citations or formatting):
-{existing_lines}
-
-SNIPPETS:
-{context}
-
-RETURN THE FINAL LIST NOW:
-"""
-
-
 def generate_questions_from_snippets(
     snippets: Sequence[str],
     num_questions: int,
     llm: BaseLLM,
 ) -> List[QuestionWithCitations]:
     """
-    Generates `num_questions` questions with snippet citations.
-    If the model fails (missing citations or wrong count), does one repair pass.
+    Single-pass generation (no repair pass).
+    Returns up to `num_questions` parsed items.
     """
     if num_questions <= 0:
         return []
@@ -169,19 +131,6 @@ def generate_questions_from_snippets(
     resp = llm.complete(prompt)
     raw = getattr(resp, "text", None) or str(resp)
 
-    questions = parse_questions_with_citations(raw, snippet_count=len(snippets))
+    items = parse_questions_with_citations(raw, snippet_count=len(snippets))
 
-    # Conditions that trigger repair:
-    # - wrong count
-    # - any question missing citations
-    bad = (len(questions) < num_questions) or any(
-        len(question.snippet_ids) == 0 for question in questions[:num_questions]
-    )
-
-    if bad:
-        repair = _repair_prompt(snippets, num_questions, questions)
-        new_resp = llm.complete(repair)
-        new_raw = getattr(new_resp, "text", None) or str(new_resp)
-        questions = parse_questions_with_citations(new_raw, snippet_count=len(snippets))
-
-    return questions[:num_questions]
+    return items[:num_questions]
