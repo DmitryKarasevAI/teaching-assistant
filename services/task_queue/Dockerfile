@@ -9,6 +9,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
+      curl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
@@ -21,10 +22,9 @@ RUN uv sync --frozen --no-install-project \
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"
 
-# Copy code + configs
 COPY src ./src
 COPY configs ./configs
 
 EXPOSE 8000
 
-CMD ["uvicorn", "teaching_assistant.rag.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "teaching_assistant.task_queue.api:app", "--host", "0.0.0.0", "--port", "8000"]

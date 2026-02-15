@@ -3,7 +3,6 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/app/.cache/huggingface \
-    TRANSFORMERS_CACHE=/app/.cache/huggingface \
     UV_HTTP_TIMEOUT=300
 
 WORKDIR /app
@@ -14,14 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --no-cache-dir uv
 
-# Install deps first for better caching
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+ARG UV_EXTRAS=""
+RUN uv sync --frozen --no-install-project \
+    $(for e in $UV_EXTRAS; do echo --extra $e; done)
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"
 
-# Copy code + configs
 COPY src ./src
 COPY configs ./configs
 

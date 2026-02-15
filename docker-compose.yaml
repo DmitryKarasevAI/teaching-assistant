@@ -25,10 +25,26 @@ services:
       retries: 60
       start_period: 5s
 
+  redis:
+    image: redis:7-alpine
+    restart: on-failure
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 2s
+
   rag:
     build:
       context: .
       dockerfile: services/rag/Dockerfile
+      args:
+        UV_EXTRAS: "llama"
     restart: on-failure
     ports:
       - "8001:8000" # expose rag externally for ingestion/debug
@@ -49,19 +65,116 @@ services:
       timeout: 3s
       retries: 30
 
+  task_queue:
+    build:
+      context: .
+      dockerfile: services/task_queue/Dockerfile
+      args:
+        UV_EXTRAS: "queue"
+    restart: on-failure
+    ports:
+      - "8002:8000"
+    environment:
+      - RAG_URL=http://rag:8000
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - hf_cache:/app/.cache/huggingface
+      - app_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      rag:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request;
+          urllib.request.urlopen(''http://localhost:8000/healthz'').read()"',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+
+  ingest_worker:
+    build:
+      context: .
+      dockerfile: services/task_queue/Dockerfile
+      args:
+        UV_EXTRAS: "queue llama"
+    restart: on-failure
+    command:
+      [
+        "/app/.venv/bin/celery",
+        "-A",
+        "teaching_assistant.task_queue.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=1",
+        "-Q",
+        "ingest",
+      ]
+    environment:
+      - RAG_URL=http://rag:8000
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - hf_cache:/app/.cache/huggingface
+      - app_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  gen_worker:
+    build:
+      context: .
+      dockerfile: services/task_queue/Dockerfile
+      args:
+        UV_EXTRAS: "queue llama"
+    restart: on-failure
+    command:
+      [
+        "/app/.venv/bin/celery",
+        "-A",
+        "teaching_assistant.task_queue.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=1",
+        "-Q",
+        "gen,default",
+      ]
+    environment:
+      - RAG_URL=http://rag:8000
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - hf_cache:/app/.cache/huggingface
+      - app_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      rag:
+        condition: service_healthy
+
   gen:
     build:
       context: .
       dockerfile: services/gen/Dockerfile
+      args:
+        UV_EXTRAS: "llama"
     restart: on-failure
     ports:
       - "8000:8000"
     environment:
       - RAG_URL=http://rag:8000
+      - TASK_QUEUE_URL=http://task_queue:8000
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - hf_cache:/app/.cache/huggingface
       - app_data:/app/data
     depends_on:
+      task_queue:
+        condition: service_healthy
       rag:
         condition: service_healthy
     healthcheck:
@@ -79,3 +192,4 @@ volumes:
   qdrant_storage:
   hf_cache:
   app_data:
+  redis_data:
