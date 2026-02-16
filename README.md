@@ -5,7 +5,8 @@ Warning!!! Проект на данном этапе достаточно тяж
 
 Для запуска проекта выполните следующие команды:
 - `uv sync`
-- `docker compose up --no-cache`
+- `docker compose build --no-cache`
+- `docker compose up`
 
 В проекте работают следующие сервисы: 
 - rag
