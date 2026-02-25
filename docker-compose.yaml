@@ -47,7 +47,7 @@ services:
         UV_EXTRAS: "llama"
     restart: on-failure
     ports:
-      - "8001:8000" # expose rag externally for ingestion/debug
+      - "8001:8000"
     volumes:
       - hf_cache:/app/.cache/huggingface
       - app_data:/app/data
@@ -72,8 +72,6 @@ services:
       args:
         UV_EXTRAS: "queue"
     restart: on-failure
-    ports:
-      - "8000:8000"
     environment:
       - RAG_URL=http://rag:8000
       - REDIS_URL=redis://redis:6379/0
@@ -85,6 +83,18 @@ services:
         condition: service_healthy
       rag:
         condition: service_healthy
+    command:
+      [
+        "uvicorn",
+        "teaching_assistant.task_queue.api:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--workers",
+        "2",
+        "--proxy-headers",
+      ]
     healthcheck:
       test:
         [
@@ -155,6 +165,25 @@ services:
         condition: service_healthy
       rag:
         condition: service_healthy
+
+  static:
+    build:
+      context: .
+      dockerfile: services/static/Dockerfile
+    restart: on-failure
+
+  nginx:
+    build:
+      context: .
+      dockerfile: services/nginx/Dockerfile
+    restart: on-failure
+    ports:
+      - "80:80"
+    depends_on:
+      task_queue:
+        condition: service_healthy
+      static:
+        condition: service_started
 
 volumes:
   qdrant_storage:

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Teaching Assistant</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Teaching Assistant</h1>
+
+      <section class="card">
+        <h2>Ingest (async)</h2>
+        <div class="grid">
+          <label>tenant_id <input id="ing_tenant" value="demo-tenant" /></label>
+          <label>course_id <input id="ing_course" value="demo-course" /></label>
+          <label>source_id <input id="ing_source" placeholder="optional" /></label>
+        </div>
+        <label class="block">text</label>
+        <textarea id="ing_text" rows="6">Paste course content here...</textarea>
+        <button id="btn_ingest">Ingest</button>
+        <pre id="ing_out" class="out"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Generate questions (async)</h2>
+        <div class="grid">
+          <label>tenant_id <input id="gen_tenant" value="demo-tenant" /></label>
+          <label>course_id <input id="gen_course" value="demo-course" /></label>
+          <label>num_questions <input id="gen_n" type="number" value="5" min="1" max="50"/></label>
+        </div>
+        <label class="block">query</label>
+        <input id="gen_query" value="Generate exam questions about the key concepts." />
+        <button id="btn_gen">Generate</button>
+        <pre id="gen_out" class="out"></pre>
+      </section>
+
+      <p class="muted">
+        API docs are available at <code>/api/docs</code>
+      </p>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
