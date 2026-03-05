@@ -185,6 +185,25 @@ services:
       static:
         condition: service_started
 
+  metrics:
+    build:
+      context: .
+      dockerfile: services/metrics/Dockerfile
+      args:
+        UV_EXTRAS: "metrics"
+    restart: on-failure
+    volumes:
+      - ./.env:/app/.env:ro
+    ports:
+      - "8002:8000"
+    depends_on:
+      rag:
+        condition: service_healthy
+      task_queue:
+        condition: service_healthy
+      gen_worker:
+        condition: service_started
+
 volumes:
   qdrant_storage:
   hf_cache:

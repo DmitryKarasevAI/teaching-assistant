@@ -1,0 +1,25 @@
+tenant_id: test
+course_id: test
+
+rag_url: http://rag:8000
+task_queue_url: http://task_queue:8000
+
+threshold: null
+top_k: null
+
+num_questions: 5
+
+rag_timeout_s: 30
+taskqueue_timeout_s: 30
+gen_timeout_s: 300
+poll_interval_s: 1.0
+
+max_concurrency: 4
+context_max_chars_each: 4000
+
+openrouter:
+  base_url: https://openrouter.ai/api/v1
+  model: qwen/qwen3-max-thinking
+  max_retries: 6
+  http_referer: null
+  app_title: teaching-assistant

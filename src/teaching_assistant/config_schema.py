@@ -39,7 +39,6 @@ class IndexingConfig:
     store_dense_high: bool = True
     store_bm25: bool = True
 
-    # BM25 options used by Qdrant inference Document(...) (avg_len is important)
     bm25_avg_len: float = 120.0
     bm25_k: float = 1.2
     bm25_b: float = 0.75
@@ -122,7 +121,7 @@ class RetrievalConfig:
     reranker: RerankerConfig = field(default_factory=RerankerConfig)
 
 
-# ---------- App-level stuff you still use ----------
+# ---------- App-level ----------
 
 
 @dataclass
@@ -130,6 +129,42 @@ class AppConfig:
     persist_dir: str = "data/index"
     raw_docs_dir: str = "data/raw_docs"
     threshold: float = 0.4
+
+
+# ---------- Metrics service ----------
+
+
+@dataclass
+class OpenRouterMetricsConfig:
+    base_url: str = "https://openrouter.ai/api/v1"
+    model: str = "qwen/qwen3-max-thinking"
+    max_retries: int = 6
+    http_referer: Optional[str] = None
+    app_title: Optional[str] = "teaching-assistant"
+
+
+@dataclass
+class MetricsConfig:
+    tenant_id: str = "test"
+    course_id: Optional[str] = "test"
+
+    rag_url: str = "http://rag:8000"
+    task_queue_url: str = "http://task_queue:8000"
+
+    threshold: Optional[float] = None
+    top_k: Optional[int] = None
+
+    num_questions: int = 5
+
+    rag_timeout_s: float = 30.0
+    taskqueue_timeout_s: float = 30.0
+    gen_timeout_s: float = 120.0
+    poll_interval_s: float = 1.0
+
+    max_concurrency: int = 4
+    context_max_chars_each: int = 4000
+
+    openrouter: OpenRouterMetricsConfig = field(default_factory=OpenRouterMetricsConfig)
 
 
 # ---------- Root ----------
@@ -143,3 +178,4 @@ class Config:
     qdrant: QdrantConfig = field(default_factory=QdrantConfig)
     indexing: IndexingConfig = field(default_factory=IndexingConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    metrics: MetricsConfig = field(default_factory=MetricsConfig)
