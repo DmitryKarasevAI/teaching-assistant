@@ -14,6 +14,7 @@ from qdrant_client import QdrantClient, models as qmodels
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from ..config_schema import Config
+from ..torch_runtime import assert_module_on_cuda, resolve_required_cuda_device
 
 
 @dataclass
@@ -43,8 +44,17 @@ class IndexManager:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
 
-        self.low_embed = HuggingFaceEmbedding(model_name=cfg.embedding.low_model_name)
-        self.high_embed = HuggingFaceEmbedding(model_name=cfg.embedding.high_model_name)
+        self.torch_device = resolve_required_cuda_device(cfg.torch)
+        self.torch_device_text = str(self.torch_device)
+
+        self.low_embed = HuggingFaceEmbedding(
+            model_name=cfg.embedding.low_model_name,
+            device=self.torch_device_text,
+        )
+        self.high_embed = HuggingFaceEmbedding(
+            model_name=cfg.embedding.high_model_name,
+            device=self.torch_device_text,
+        )
 
         self.splitter = SentenceSplitter(
             chunk_size=cfg.indexing.chunk_size, chunk_overlap=cfg.indexing.chunk_overlap
@@ -55,7 +65,10 @@ class IndexManager:
             self.cross_rerank = SentenceTransformerRerank(
                 model=self.cfg.retrieval.reranker.cross_encoder.model,
                 top_n=int(self.cfg.retrieval.reranker.cross_encoder.top_n),
+                device=self.torch_device_text,
             )
+
+        self._assert_gpu_models()
 
         self.client = self._make_qdrant_client(cfg)
         self.collection_name = cfg.qdrant.collection
@@ -73,6 +86,27 @@ class IndexManager:
         # Will produce an error if we retrieve bm25 when we don't store bm25
         if self.cfg.retrieval.stage1.bm25.enabled and not self.cfg.indexing.store_bm25:
             raise ValueError("stage1.bm25 enabled but indexing.store_bm25 is false")
+
+    def _assert_gpu_models(self) -> None:
+        assert_module_on_cuda(
+            self.low_embed,
+            label=f"low embedding model ({self.cfg.embedding.low_model_name})",
+            expected_device=self.torch_device,
+        )
+        assert_module_on_cuda(
+            self.high_embed,
+            label=f"high embedding model ({self.cfg.embedding.high_model_name})",
+            expected_device=self.torch_device,
+        )
+        if self.cross_rerank is not None:
+            assert_module_on_cuda(
+                self.cross_rerank,
+                label=(
+                    "cross encoder reranker "
+                    f"({self.cfg.retrieval.reranker.cross_encoder.model})"
+                ),
+                expected_device=self.torch_device,
+            )
 
     def _make_qdrant_client(self, cfg: Config) -> QdrantClient:
         path = cfg.qdrant.path
@@ -157,6 +191,7 @@ class IndexManager:
                 raise
 
     def add_text(self, text: str, metadata: Dict[str, Any]) -> Tuple[str, int]:
+        self._assert_gpu_models()
         document_id = metadata.get("document_id") or str(uuid.uuid4())
 
         tenant_id = metadata.get("tenant_id")
@@ -291,6 +326,7 @@ class IndexManager:
         course_id: Optional[str] = None,
         top_k: Optional[int] = None,
     ) -> List[RetrievedSnippet]:
+        self._assert_gpu_models()
         must = []
         if tenant_id:
             must.append(

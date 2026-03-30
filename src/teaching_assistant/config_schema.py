@@ -17,6 +17,12 @@ class LLMConfig:
     tokenizer: str = "Qwen/Qwen3-0.6B"
 
 
+@dataclass
+class TorchConfig:
+    device: str = "cuda:0"
+    require_cuda: bool = True
+
+
 # ---------- Qdrant ----------
 
 
@@ -175,6 +181,7 @@ class Config:
     app: AppConfig = field(default_factory=AppConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    torch: TorchConfig = field(default_factory=TorchConfig)
     qdrant: QdrantConfig = field(default_factory=QdrantConfig)
     indexing: IndexingConfig = field(default_factory=IndexingConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)

@@ -44,8 +44,15 @@ services:
       context: .
       dockerfile: services/rag/Dockerfile
       args:
-        UV_EXTRAS: "llama"
+        UV_EXTRAS: "llama ${TORCH_BACKEND_EXTRA:-torch-cu128}"
     restart: on-failure
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     ports:
       - "8001:8000"
     volumes:
@@ -111,8 +118,15 @@ services:
       context: .
       dockerfile: services/task_queue/Dockerfile
       args:
-        UV_EXTRAS: "queue llama"
+        UV_EXTRAS: "queue llama ${TORCH_BACKEND_EXTRA:-torch-cu128}"
     restart: on-failure
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     command:
       [
         "/app/.venv/bin/celery",
@@ -141,8 +155,15 @@ services:
       context: .
       dockerfile: services/task_queue/Dockerfile
       args:
-        UV_EXTRAS: "queue llama"
+        UV_EXTRAS: "queue llama ${TORCH_BACKEND_EXTRA:-torch-cu128}"
     restart: on-failure
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     command:
       [
         "/app/.venv/bin/celery",

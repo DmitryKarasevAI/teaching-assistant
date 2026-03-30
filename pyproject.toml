@@ -29,7 +29,13 @@ llama = [
   "qdrant-client>=1.16.2",
   "sentence-transformers>=3.0.0",
   "transformers>=4.40.0",
-  "torch>=2.2.0",
+]
+torch-cu126 = [
+  "torch>=2.2.0 ; sys_platform == 'linux' or sys_platform == 'win32'",
+]
+
+torch-cu128 = [
+  "torch>=2.2.0 ; sys_platform == 'linux' or sys_platform == 'win32'",
 ]
 
 metrics = [
@@ -44,6 +50,29 @@ dev = [
 
 [project.scripts]
 teaching-assistant = "teaching_assistant:main"
+[tool.uv]
+conflicts = [
+  [
+    { extra = "torch-cu126" },
+    { extra = "torch-cu128" },
+  ],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu126", extra = "torch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+  { index = "pytorch-cu128", extra = "torch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [build-system]
 requires = ["uv_build>=0.9.7,<0.10.0"]

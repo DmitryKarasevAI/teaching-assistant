@@ -3,6 +3,7 @@ defaults:
   - embedding: embedding
   - indexing: indexing
   - llm: llm
+  - torch: torch
   - qdrant: docker
   - retrieval: retrieval
   - metrics: metrics

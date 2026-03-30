@@ -26,10 +26,15 @@ from teaching_assistant.gen.question_gen import generate_questions_from_snippets
 from teaching_assistant.rag.index_manager import IndexManager
 from teaching_assistant.rag.schemas import IngestResponse
 from teaching_assistant.task_queue.celery_app import celery_app
+from teaching_assistant.torch_runtime import (
+    assert_module_on_cuda,
+    resolve_required_cuda_device,
+)
 
 _CFG: Optional[Config] = None
 _LLM: Optional[HuggingFaceLLM] = None
 _INDEX_MANAGER: Optional[IndexManager] = None
+_CUDA_DEVICE = None
 
 
 def _get_cfg() -> Config:
@@ -39,12 +44,26 @@ def _get_cfg() -> Config:
     return _CFG
 
 
+def _get_cuda_device(cfg: Config):
+    global _CUDA_DEVICE
+    if _CUDA_DEVICE is None:
+        _CUDA_DEVICE = resolve_required_cuda_device(cfg.torch)
+    return _CUDA_DEVICE
+
+
 def _get_llm(cfg: Config) -> HuggingFaceLLM:
     global _LLM
     if _LLM is None:
+        device = _get_cuda_device(cfg)
         _LLM = HuggingFaceLLM(
             model_name=cfg.llm.model_name,
             tokenizer_name=cfg.llm.tokenizer,
+            device_map=str(device),
+        )
+        assert_module_on_cuda(
+            _LLM,
+            label=f"question generation model ({cfg.llm.model_name})",
+            expected_device=device,
         )
     return _LLM
 
@@ -142,6 +161,11 @@ def generate_questions_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
     req = GenerateQuestionsRequest.model_validate(payload)
     cfg = _get_cfg()
     llm = _get_llm(cfg)
+    assert_module_on_cuda(
+        llm,
+        label=f"question generation model ({cfg.llm.model_name})",
+        expected_device=_get_cuda_device(cfg),
+    )
 
     rag_url = os.environ.get("RAG_URL", "http://rag:8000")
     threshold = req.threshold if req.threshold is not None else cfg.app.threshold
