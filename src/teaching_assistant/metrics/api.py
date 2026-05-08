@@ -22,6 +22,8 @@ from teaching_assistant.metrics.schemas import (
     EvaluateResponse,
     GroundednessRequest,
     GroundednessResponse,
+    QuestionDiversityRequest,
+    QuestionDiversityResponse,
     RetrievalRelevanceRequest,
     RetrievalRelevanceResponse,
 )
@@ -234,6 +236,28 @@ def startup() -> None:
         ),
     )
 
+    app.state.question_diversity_metric = DiscreteMetric(
+        name="question_diversity_0_to_5",
+        allowed_values=["0", "1", "2", "3", "4", "5"],
+        prompt=(
+            "You are judging the DIVERSITY of a set of generated questions.\n\n"
+            "Diversity means the questions test meaningfully different concepts, facts, "
+            "skills, reasoning paths, or parts of the source material.\n\n"
+            "Penalize heavily if questions are paraphrases, ask for the same answer, "
+            "cover the same narrow concept, or differ only in wording.\n\n"
+            "Return ONLY a single digit from 0 to 5:\n"
+            "5 = Very diverse; almost every question covers a distinct angle or concept\n"
+            "4 = Mostly diverse; minor overlap\n"
+            "3 = Some diversity, but noticeable repetition\n"
+            "2 = Low diversity; many questions are similar\n"
+            "1 = Very low diversity; mostly repeated ideas\n"
+            "0 = No meaningful diversity; questions are duplicates or near-duplicates\n\n"
+            "GENERATED QUESTIONS:\n"
+            "{response}\n\n"
+            "Return ONLY one digit: 0, 1, 2, 3, 4, or 5"
+        ),
+    )
+
     metrics_config = config.metrics
     max_concurrency = max(1, min(int(metrics_config.max_concurrency), 16))
     app.state.semaphore = asyncio.Semaphore(max_concurrency)
@@ -314,6 +338,32 @@ async def score_question_topic_relevance_binary(
     )
     predicted = str(metric_result.value).strip()
     return 1.0 if predicted == "1" else 0.0
+
+
+async def score_question_diversity(question_block: str) -> int:
+    diversity_metric: DiscreteMetric = app.state.question_diversity_metric
+    evaluator_llm = app.state.evaluator_llm
+
+    metric_result = await with_rate_limit(
+        diversity_metric.ascore(
+            user_input="Judge the diversity of this generated question set.",
+            response=question_block,
+            llm=evaluator_llm,
+        )
+    )
+
+    predicted = str(metric_result.value).strip()
+
+    try:
+        raw_score = int(predicted)
+    except ValueError:
+        raw_score = 0
+
+    if raw_score < 0:
+        return 0
+    if raw_score > 5:
+        return 5
+    return raw_score
 
 
 async def run_generation_pipeline(query: str) -> Tuple[List[ContextItem], str]:
@@ -547,6 +597,45 @@ async def answer_relevance(req: AnswerRelevanceRequest) -> AnswerRelevanceRespon
         )
 
 
+@app.post("/metrics/response/diversity", response_model=QuestionDiversityResponse)
+async def question_diversity(
+    req: QuestionDiversityRequest,
+) -> QuestionDiversityResponse:
+    model_name: str = app.state.model
+
+    extracted_questions = extract_questions(req.response, max_questions=50)
+
+    if len(extracted_questions) < 2:
+        return QuestionDiversityResponse(
+            model=model_name,
+            diversity=0.0,
+            raw_score=0,
+            max_score=5,
+            num_questions=len(extracted_questions),
+        )
+
+    question_block = "\n".join(
+        f"{index + 1}. {question}" for index, question in enumerate(extracted_questions)
+    )
+
+    try:
+        raw_score = await score_question_diversity(question_block)
+        normalized_score = float(raw_score) / 5.0
+
+        return QuestionDiversityResponse(
+            model=model_name,
+            diversity=clamp_unit_interval(normalized_score),
+            raw_score=raw_score,
+            max_score=5,
+            num_questions=len(extracted_questions),
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Question diversity eval failed: {error!r}",
+        )
+
+
 @app.post("/metrics/evaluate", response_model=EvaluateResponse)
 async def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     model_name: str = app.state.model
@@ -578,6 +667,13 @@ async def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         answer_relevance_metrics = AnswerRelevanceResponse(
             model=model_name, relevance=0.0
         )
+        question_diversity_metrics = QuestionDiversityResponse(
+            model=model_name,
+            diversity=0.0,
+            raw_score=0,
+            max_score=5,
+            num_questions=0,
+        )
     else:
         groundedness_metrics = await groundedness(
             GroundednessRequest(
@@ -589,6 +685,9 @@ async def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         answer_relevance_metrics = await answer_relevance(
             AnswerRelevanceRequest(query=req.query, response=generated_text)
         )
+        question_diversity_metrics = await question_diversity(
+            QuestionDiversityRequest(response=generated_text)
+        )
 
     return EvaluateResponse(
         model=model_name,
@@ -598,4 +697,5 @@ async def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         retrieval_relevance=retrieval_metrics,
         groundedness=groundedness_metrics,
         answer_relevance=answer_relevance_metrics,
+        question_diversity=question_diversity_metrics,
     )

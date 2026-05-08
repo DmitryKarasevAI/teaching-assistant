@@ -59,6 +59,18 @@ class AnswerRelevanceResponse(BaseModel):
     relevance: float
 
 
+class QuestionDiversityRequest(BaseModel):
+    response: str = Field(..., min_length=1)
+
+
+class QuestionDiversityResponse(BaseModel):
+    model: str
+    diversity: float
+    raw_score: int
+    max_score: int = 5
+    num_questions: int
+
+
 class EvaluateRequest(BaseModel):
     """
     Query-only evaluation request.
@@ -82,3 +94,4 @@ class EvaluateResponse(BaseModel):
     retrieval_relevance: RetrievalRelevanceResponse
     groundedness: GroundednessResponse
     answer_relevance: AnswerRelevanceResponse
+    question_diversity: QuestionDiversityResponse
